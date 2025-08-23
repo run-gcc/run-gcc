@@ -29,6 +29,36 @@ time_limit=""
 memory_limit=""
 show_performance="true"
 
+# Function to check dependencies
+check_dependencies() {
+  local missing_deps=()
+  
+  # Check for bc (used for calculations) only if performance measurement is enabled
+  if [[ "$measure_performance" == "true" ]] && ! command -v bc >/dev/null 2>&1; then
+    missing_deps+=("bc")
+  fi
+  
+  # Check for /usr/bin/time (used for performance measurement) only if performance measurement is enabled
+  if [[ "$measure_performance" == "true" && ! -x "/usr/bin/time" ]]; then
+    missing_deps+=("/usr/bin/time")
+  fi
+  
+  if [[ ${#missing_deps[@]} -gt 0 ]]; then
+    error_exit "Missing required dependencies: ${missing_deps[*]}"
+  fi
+}
+
+# Function to generate unique temp file prefix
+get_temp_prefix() {
+  echo "/tmp/run-gcc-$$-$RANDOM"
+}
+
+# Function to cleanup temp files safely
+cleanup_temp_files() {
+  local prefix="$1"
+  rm -f "${prefix}-time" "${prefix}-stdout" "${prefix}-perf" 2>/dev/null || true
+}
+
 # Function to load configuration files
 load_config() {
   local global_config="$HOME/.run-gccrc"
@@ -193,6 +223,61 @@ format_memory() {
   fi
 }
 
+# Function to display runtime status message
+display_runtime_status() {
+  local runtime_status="$1"
+  local skip_message="${2:-false}"  # Optional parameter for skipped message
+  
+  if [[ "$runtime_status" == "OK" ]]; then
+    return 0
+  fi
+  
+  local status_msg=""
+  local skip_suffix=""
+  if [[ "$skip_message" == "true" ]]; then
+    skip_suffix=" \\e[33m(skipped)\\e[0m"
+  fi
+  
+  if [[ "$color_output" == "true" ]]; then
+    case "$runtime_status" in
+      "TLE")
+        status_msg="\\e[31m\\e[1m[TLE]\\e[0m Time Limit Exceeded${skip_suffix}"
+        ;;
+      "MLE")
+        status_msg="\\e[31m\\e[1m[MLE]\\e[0m Memory Limit Exceeded${skip_suffix}"
+        ;;
+      "TLE+MLE")
+        status_msg="\\e[31m\\e[1m[TLE+MLE]\\e[0m Limits Exceeded${skip_suffix}"
+        ;;
+    esac
+    echo -e "$status_msg"
+  else
+    case "$runtime_status" in
+      "TLE")
+        if [[ "$skip_message" == "true" ]]; then
+          echo "[TLE] Time Limit Exceeded (skipped)"
+        else
+          echo "[TLE] Time Limit Exceeded"
+        fi
+        ;;
+      "MLE")
+        if [[ "$skip_message" == "true" ]]; then
+          echo "[MLE] Memory Limit Exceeded (skipped)"
+        else
+          echo "[MLE] Memory Limit Exceeded"
+        fi
+        ;;
+      "TLE+MLE")
+        if [[ "$skip_message" == "true" ]]; then
+          echo "[TLE+MLE] Limits Exceeded (skipped)"
+        else
+          echo "[TLE+MLE] Limits Exceeded"
+        fi
+        ;;
+    esac
+  fi
+}
+
 # Function to display performance results with fancy formatting
 display_performance() {
   local runtime_ms="$1"
@@ -278,7 +363,7 @@ compile_file() {
   cpp | cc | cxx) specific_flags="$cpp_flags" ;;
   esac
 
-  "$compiler" $compiler_flags $specific_flags -o "$output_file" "$source_file" $linker_flags
+  "$compiler" ${compiler_flags} ${specific_flags} -o "$output_file" "$source_file" ${linker_flags}
 }
 
 # Function to run the compiled program with performance measurement
@@ -293,10 +378,12 @@ run_program() {
   local exit_code=0
 
   if [[ "$measure_performance" == "true" ]]; then
-    # Create temporary files for time and memory measurement
-    local time_file="/tmp/run-gcc-time-$$"
-    local stdout_file="/tmp/run-gcc-stdout-$$"
-    local perf_file="/tmp/run-gcc-perf-$$"
+    # Create temporary files for time and memory measurement with better uniqueness
+    local temp_prefix
+    temp_prefix=$(get_temp_prefix)
+    local time_file="${temp_prefix}-time"
+    local stdout_file="${temp_prefix}-stdout"
+    local perf_file="${temp_prefix}-perf"
     
     # Use GNU time to measure performance
     local time_cmd="/usr/bin/time"
@@ -354,6 +441,7 @@ PERF_TIME_LIMIT=$time_limit
 PERF_MEMORY_LIMIT=$memory_limit
 PERF_TLE_STATUS=$tle_status
 PERF_MLE_STATUS=$mle_status
+PERF_TEMP_PREFIX=$temp_prefix
 EOF
     
     # Clean up temporary files (but keep perf_file for main function)
@@ -393,31 +481,7 @@ compare_output() {
   
   # Check if there were performance issues first
   if [[ "$runtime_status" != "OK" ]]; then
-    if [[ "$color_output" == "true" ]]; then
-      case "$runtime_status" in
-        "TLE")
-          echo -e "\e[31m\e[1m[TLE]\e[0m Time Limit Exceeded \e[33m(skipped)\e[0m"
-          ;;
-        "MLE")
-          echo -e "\e[31m\e[1m[MLE]\e[0m Memory Limit Exceeded \e[33m(skipped)\e[0m"
-          ;;
-        "TLE+MLE")
-          echo -e "\e[31m\e[1m[TLE+MLE]\e[0m Limits Exceeded \e[33m(skipped)\e[0m"
-          ;;
-      esac
-    else
-      case "$runtime_status" in
-        "TLE")
-          echo "[TLE] Time Limit Exceeded (skipped)"
-          ;;
-        "MLE")
-          echo "[MLE] Memory Limit Exceeded (skipped)"
-          ;;
-        "TLE+MLE")
-          echo "[TLE+MLE] Limits Exceeded (skipped)"
-          ;;
-      esac
-    fi
+    display_runtime_status "$runtime_status" "true"
     return 1
   fi
   
@@ -615,6 +679,9 @@ main() {
     expected_file="${expected_file:-$default_expected_file}"
   fi
 
+  # Check dependencies after configuration is loaded
+  check_dependencies
+
   local source_filename="${source_file##*/}"
   local output_file="${source_filename%.*}"
 
@@ -641,27 +708,35 @@ main() {
   compile_file "$compiler" "$source_file" "$output_file"
   local program_output
   local runtime_status="OK"
+  local temp_prefix=""
   program_output=$(run_program "$output_file" "$input_file") || exit_code=$?
   
   # Check for performance issues and set status
-  local perf_file="/tmp/run-gcc-perf-$$"
   local tle_occurred="false"
   local mle_occurred="false"
+  local temp_prefix=""
   
-  if [[ "$measure_performance" == "true" && -f "$perf_file" ]]; then
-    # Read performance data from file
-    source "$perf_file"
-    tle_occurred="$PERF_TLE_STATUS"
-    mle_occurred="$PERF_MLE_STATUS"
+  if [[ "$measure_performance" == "true" ]]; then
+    # Find the performance file - it should be created by run_program
+    local perf_file
+    perf_file=$(find /tmp -name "run-gcc-$$-*-perf" 2>/dev/null | head -1)
     
-    # Set runtime status based on performance issues
-    if [[ "$tle_occurred" == "true" && "$mle_occurred" == "true" ]]; then
-      runtime_status="TLE+MLE"
-    elif [[ "$tle_occurred" == "true" ]]; then
-      runtime_status="TLE"
-    elif [[ "$mle_occurred" == "true" ]]; then
-      runtime_status="MLE"
+    if [[ -n "$perf_file" && -f "$perf_file" ]]; then
+      # Read performance data from file
+      source "$perf_file"
+      tle_occurred="$PERF_TLE_STATUS"
+      mle_occurred="$PERF_MLE_STATUS"
+      temp_prefix="$PERF_TEMP_PREFIX"
     fi
+  fi
+    
+  # Set runtime status based on performance issues
+  if [[ "$tle_occurred" == "true" && "$mle_occurred" == "true" ]]; then
+    runtime_status="TLE+MLE"
+  elif [[ "$tle_occurred" == "true" ]]; then
+    runtime_status="TLE"
+  elif [[ "$mle_occurred" == "true" ]]; then
+    runtime_status="MLE"
   fi
   
   # Handle output comparison or display
@@ -674,38 +749,14 @@ main() {
     
     # Show runtime status if there were performance issues
     if [[ "$runtime_status" != "OK" ]]; then
-      if [[ "$color_output" == "true" ]]; then
-        case "$runtime_status" in
-          "TLE")
-            echo -e "\e[31m\e[1m[TLE]\e[0m Time Limit Exceeded"
-            ;;
-          "MLE")
-            echo -e "\e[31m\e[1m[MLE]\e[0m Memory Limit Exceeded"
-            ;;
-          "TLE+MLE")
-            echo -e "\e[31m\e[1m[TLE+MLE]\e[0m Limits Exceeded"
-            ;;
-        esac
-      else
-        case "$runtime_status" in
-          "TLE")
-            echo "[TLE] Time Limit Exceeded"
-            ;;
-          "MLE")
-            echo "[MLE] Memory Limit Exceeded"
-            ;;
-          "TLE+MLE")
-            echo "[TLE+MLE] Limits Exceeded"
-            ;;
-        esac
-      fi
+      display_runtime_status "$runtime_status"
     fi
   fi
 
   # Display performance metrics if they were collected
-  if [[ "$measure_performance" == "true" && -f "$perf_file" ]]; then
+  if [[ "$measure_performance" == "true" && -n "$temp_prefix" ]]; then
     display_performance "$PERF_RUNTIME_MS" "$PERF_MEMORY_KB" "$PERF_TIME_LIMIT" "$PERF_MEMORY_LIMIT" "$PERF_TLE_STATUS" "$PERF_MLE_STATUS"
-    rm -f "$perf_file"
+    cleanup_temp_files "$temp_prefix"
   fi
 
   if [[ "$cleanup_output" == "true" ]]; then
