@@ -1,16 +1,22 @@
-.TH RUN-GCC 1 "2025-04-05" "run-gcc 1.0" "run-gcc Manual"
+.TH RUN-GCC 1 "2025-04-05" "run-gcc 1.3" "run-gcc Manual"
 .SH NAME
 run-gcc \- A versatile script to compile and run C/C++ programs
 
 .SH SYNOPSIS
 .B run-gcc
 [\fIOPTIONS\fR] \fISOURCE_FILE\fR
+.br
+.B run-gcc
+--new \fIFILENAME\fR [--template \fITEMPLATE_NAME\fR]
+.br
+.B run-gcc
+--list-templates \fIEXTENSION\fR
 
 .SH DESCRIPTION
 .B run-gcc
 is a command-line utility designed to simplify the process of compiling and running C and C++ programs. It automatically detects the file type based on the extension and uses the appropriate compiler (\fBgcc\fR for C and \fBg++\fR for C++).
 
-The script also provides additional features such as input/output handling, output comparison, and displaying differences between actual and expected outputs.
+The script also provides additional features such as input/output handling, output comparison, displaying differences between actual and expected outputs, and creating new files from templates.
 
 .SH OPTIONS
 .TP
@@ -28,6 +34,49 @@ Specify an expected output file to compare the program's output.
 .TP
 .B \-d, --diff
 Show the difference between the program's output and the expected output.
+.TP
+.B --new \fIFILENAME\fR
+Create a new source file from a template. The template is automatically selected based on the file extension.
+.TP
+.B --template \fITEMPLATE_NAME\fR
+Specify which template to use when creating a new file with --new. Default template is "default".
+.TP
+.B --list-templates \fIEXTENSION\fR
+List all available templates for the specified file extension (c or cpp).
+
+.SH TEMPLATES
+Templates are stored in \fI~/.run-gcc/templates/\fR directory, organized by language. The script includes default templates for C and C++ files.
+
+.TP
+.B Template Directory Structure
+.nf
+~/.run-gcc/templates/c/      - C templates
+~/.run-gcc/templates/cpp/    - C++ templates
+.fi
+
+.TP
+.B Built-in Templates
+The following templates are included by default:
+.RS
+.IP "\fBC Templates:\fR"
+.RS
+.IP "default" 12
+Basic C program structure
+.IP "competitive" 12
+Competitive programming template with common includes
+.RE
+.IP "\fBC++ Templates:\fR"
+.RS
+.IP "default" 12
+Basic C++ program structure  
+.IP "competitive" 12
+Competitive programming template with fast I/O and common includes
+.RE
+.RE
+
+.TP
+.B Custom Templates
+You can add custom templates by creating files in the appropriate language directory. Template files must match the extension of the language (e.g., .c for C templates, .cpp for C++ templates).
 
 .SH USAGE
 To compile and run a C or C++ program, provide the source file as an argument:
@@ -48,10 +97,24 @@ To display differences between actual and expected outputs:
 .B run-gcc -i input.txt -e expected.txt -d hello.cpp
 Runs the program \fIhello.cpp\fR with input from \fIinput.txt\fR, compares the output with \fIexpected.txt\fR, and shows the differences.
 
+To create a new file from a template:
+.TP
+.B run-gcc --new solution.c
+Creates a new C file using the default template.
+.TP
+.B run-gcc --new solution.cpp --template competitive
+Creates a new C++ file using the competitive programming template.
+
 .SH EXAMPLES
 .TP
 .B run-gcc main.c
 Compiles and executes the C program \fImain.c\fR.
+.TP
+.B run-gcc --new hello.c
+Creates a new C file from the default template.
+.TP
+.B run-gcc --list-templates cpp
+Lists all available C++ templates.
 .TP
 .B run-gcc -h
 Displays the help message.

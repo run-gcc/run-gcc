@@ -7,7 +7,12 @@ set -euo pipefail
 # General configuration
 show_diff="false"
 cleanup_output="true"
-color_output="true"
+# Detect if stdout is a terminal for color output
+if [[ -t 1 ]]; then
+  color_output="true"
+else
+  color_output="false"
+fi
 execution_timeout=""
 skip_config="false"
 
@@ -28,6 +33,10 @@ measure_performance="false"
 time_limit=""
 memory_limit=""
 show_performance="true"
+
+# Template configuration
+template_dir="$HOME/.run-gcc/templates"
+default_template="default"
 
 # Function to load configuration files
 load_config() {
@@ -57,9 +66,183 @@ error_exit() {
   exit 1
 }
 
+# Function to initialize template directory
+init_template_dir() {
+  local template_base_dir="$HOME/.run-gcc"
+  local user_template_dir="$template_base_dir/templates"
+  
+  # Create directory structure if it doesn't exist
+  if [[ ! -d "$user_template_dir" ]]; then
+    mkdir -p "$user_template_dir/c" "$user_template_dir/cpp"
+    
+    # Detect installation directory
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local pkg_templates=""
+    
+    # Check various possible locations for pkg/templates
+    if [[ -d "$script_dir/../pkg/templates" ]]; then
+      pkg_templates="$script_dir/../pkg/templates"
+    elif [[ -d "/usr/share/run-gcc/templates" ]]; then
+      pkg_templates="/usr/share/run-gcc/templates"
+    elif [[ -d "/usr/local/share/run-gcc/templates" ]]; then
+      pkg_templates="/usr/local/share/run-gcc/templates"
+    fi
+    
+    # Copy default templates from installation if available
+    if [[ -n "$pkg_templates" && -d "$pkg_templates" ]]; then
+      cp -r "$pkg_templates"/* "$user_template_dir/" 2>/dev/null || true
+    else
+      # Create basic default templates if no installation templates found
+      cat > "$user_template_dir/c/default.c" << 'EOFT'
+#include <stdio.h>
+
+int main() {
+    // Your code here
+    
+    return 0;
+}
+EOFT
+      
+      cat > "$user_template_dir/cpp/default.cpp" << 'EOFT'
+#include <iostream>
+
+using namespace std;
+
+int main() {
+    // Your code here
+    
+    return 0;
+}
+EOFT
+    fi
+  fi
+}
+
+# Function to list available templates for a given extension
+list_templates() {
+  local extension="$1"
+  local lang_dir=""
+  
+  case "$extension" in
+    c) lang_dir="c" ;;
+    cpp|cc|cxx) lang_dir="cpp" ;;
+    *) error_exit "Unsupported file extension '$extension'" ;;
+  esac
+  
+  local template_path="$template_dir/$lang_dir"
+  
+  if [[ ! -d "$template_path" ]]; then
+    error_exit "Template directory not found: $template_path"
+  fi
+  
+  local templates=()
+  while IFS= read -r -d '' file; do
+    local basename="${file##*/}"
+    local name="${basename%.*}"
+    # Avoid duplicates by checking if name is already in array
+    if [[ ${#templates[@]} -eq 0 || ! " ${templates[*]} " =~ " ${name} " ]]; then
+      templates+=("$name")
+    fi
+  done < <(find "$template_path" -maxdepth 1 -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" \) -print0 2>/dev/null)
+  
+  if [[ ${#templates[@]} -eq 0 ]]; then
+    if [[ "$color_output" == "true" ]]; then
+      echo -e "\e[33m\e[1mWarning:\e[0m No templates found for $extension files"
+    else
+      echo "Warning: No templates found for $extension files"
+    fi
+    return 1
+  fi
+  
+  if [[ "$color_output" == "true" ]]; then
+    echo -e "\e[1mAvailable templates for .$extension files:\e[0m"
+  else
+    echo "Available templates for .$extension files:"
+  fi
+  
+  local i=1
+  for template in "${templates[@]}"; do
+    echo "  $i) $template"
+    ((i++))
+  done
+  
+  echo
+}
+
+# Function to create a new file from template
+create_from_template() {
+  local filename="$1"
+  local template_name="${2:-$default_template}"
+  
+  # Extract extension
+  local extension="${filename##*.}"
+  
+  # Determine language directory and possible template extensions
+  local lang_dir=""
+  local template_extensions=()
+  case "$extension" in
+    c) 
+      lang_dir="c"
+      template_extensions=("c")
+      ;;
+    cpp|cc|cxx) 
+      lang_dir="cpp"
+      template_extensions=("cpp" "cc" "cxx")
+      ;;
+    *) error_exit "Unsupported file extension '$extension'" ;;
+  esac
+  
+  # Check if file already exists
+  if [[ -f "$filename" ]]; then
+    error_exit "File '$filename' already exists"
+  fi
+  
+  # Try to find template with matching extension first, then fallback to common extensions
+  local template_path=""
+  local found_template="false"
+  
+  # First, try exact extension match
+  if [[ -f "$template_dir/$lang_dir/$template_name.$extension" ]]; then
+    template_path="$template_dir/$lang_dir/$template_name.$extension"
+    found_template="true"
+  else
+    # Try other common extensions for this language
+    for ext in "${template_extensions[@]}"; do
+      if [[ -f "$template_dir/$lang_dir/$template_name.$ext" ]]; then
+        template_path="$template_dir/$lang_dir/$template_name.$ext"
+        found_template="true"
+        break
+      fi
+    done
+  fi
+  
+  if [[ "$found_template" != "true" ]]; then
+    if [[ "$color_output" == "true" ]]; then
+      echo -e "\e[33m\e[1mWarning:\e[0m Template '$template_name' not found"
+    else
+      echo "Warning: Template '$template_name' not found"
+    fi
+    echo
+    list_templates "$extension"
+    exit 1
+  fi
+  
+  # Copy template to new file
+  cp "$template_path" "$filename"
+  
+  if [[ "$color_output" == "true" ]]; then
+    echo -e "\e[32m\e[1mSuccess:\e[0m Created '$filename' from template '$template_name'"
+  else
+    echo "Success: Created '$filename' from template '$template_name'"
+  fi
+}
+
 # Function to display help message
 show_help() {
   echo "Usage: $(basename "$0") <source_file> [OPTIONS]"
+  echo "       $(basename "$0") --new <filename> [--template <name>]"
+  echo "       $(basename "$0") --list-templates <extension>"
   echo "       $(basename "$0") --generate-config [--global|-g|--local]"
   echo
   echo "Options:"
@@ -77,6 +260,11 @@ show_help() {
   echo "  -g, --global          Generate global config file (in \$HOME)"
   echo "      --local           Generate local config file (default, in current directory)"
   echo
+  echo "Template Options:"
+  echo "      --new <filename>        Create a new file from template"
+  echo "      --template <name>       Specify template name (default: $default_template)"
+  echo "      --list-templates <ext>  List available templates for extension (c, cpp)"
+  echo
   echo "Description:"
   echo "  A versatile Bash script to compile and run C/C++ programs with"
   echo "  input/output handling, output comparison, and more."
@@ -84,7 +272,7 @@ show_help() {
 
 # Function to display version
 show_version() {
-  echo "$(basename "$0") version 1.3.0"
+  echo "$(basename "$0") version 1.4.0-beta"
 }
 
 # Function to generate configuration file
@@ -147,6 +335,10 @@ measure_performance="false"
 time_limit=""
 memory_limit=""
 show_performance="true"
+
+# Template configuration
+template_dir="$HOME/.run-gcc/templates"
+default_template="default"
 EOF
   
   if [[ "$color_output" == "true" ]]; then
@@ -451,6 +643,11 @@ main() {
   local exit_code=0
   local generate_config_flag="false"
   local config_type="local"
+  local new_file_flag="false"
+  local new_filename=""
+  local template_name=""
+  local list_templates_flag="false"
+  local list_extension=""
   
   # Track command line overrides
   local cmd_line_performance_set="false"
@@ -459,7 +656,7 @@ main() {
   local cmd_line_memory_limit_set="false"
   local cmd_line_show_diff_set="false"
 
-  # Check if help, version, or generate-config options are provided
+  # Check if help, version, or special options are provided
   if [[ $# -ge 1 ]]; then
     case "$1" in
     -h | --help)
@@ -468,6 +665,31 @@ main() {
       ;;
     -v | --version)
       show_version
+      exit 0
+      ;;
+    --new)
+      # Initialize template directory only when needed
+      init_template_dir
+      new_file_flag="true"
+      shift
+      if [[ $# -lt 1 ]]; then
+        error_exit "Missing filename after '--new'"
+      fi
+      new_filename="$1"
+      shift
+      ;;
+    --list-templates)
+      # Initialize template directory only when needed
+      init_template_dir
+      list_templates_flag="true"
+      shift
+      if [[ $# -lt 1 ]]; then
+        error_exit "Missing extension after '--list-templates'"
+      fi
+      list_extension="$1"
+      shift
+      # List templates and exit
+      list_templates "$list_extension"
       exit 0
       ;;
     --generate-config)
@@ -500,7 +722,38 @@ main() {
     esac
   fi
 
-  # If we're not generating config, ensure at least one argument is provided
+  # If creating new file, handle template selection
+  if [[ "$new_file_flag" == "true" ]]; then
+    # Parse remaining arguments for --template flag
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+      --template)
+        if [[ $# -lt 2 ]]; then
+          error_exit "Missing template name after '--template'"
+        fi
+        template_name="$2"
+        shift 2
+        ;;
+      -*)
+        error_exit "Unknown option '$1' for --new"
+        ;;
+      *)
+        error_exit "Unexpected argument '$1'"
+        ;;
+      esac
+    done
+    
+    # Use default template if not specified
+    if [[ -z "$template_name" ]]; then
+      template_name="$default_template"
+    fi
+    
+    # Create file from template and exit
+    create_from_template "$new_filename" "$template_name"
+    exit 0
+  fi
+
+  # If we're not generating config or creating new file, ensure at least one argument is provided
   if [[ "$generate_config_flag" == "false" && $# -lt 1 ]]; then
     error_exit "Please specify a C/C++ file"
   fi

@@ -30,10 +30,11 @@ debian/*.postrm
 debian/*.preinst
 debian/*.prerm
 
-# Ignore pkg/ except Arch templates
+# Ignore pkg/ except Arch templates and templates directory
 pkg/*
 # !pkg/arch/
 !pkg/arch/PKGBUILD
+!pkg/templates/
 
 # Editor and IDE files
 .vscode/*
