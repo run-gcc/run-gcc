@@ -34,6 +34,8 @@ make uninstall
 
 ```bash
 run-gcc <source_file> [OPTIONS]
+run-gcc --new <filename> [--template <name>]
+run-gcc --list-templates <extension>
 ```
 
 ### Options
@@ -53,7 +55,31 @@ run-gcc <source_file> [OPTIONS]
 - `-d, --diff`  
   Show the difference between the program output and the expected output.
 
+### Template Options
+
+- `--new <filename>`  
+  Create a new source file from a template.
+
+- `--template <name>`  
+  Specify which template to use when creating a new file (default: `default`).
+
+- `--list-templates <extension>`  
+  List available templates for a specific file extension (`c`, `cpp`).
+
 ## Examples
+
+### Create a New File from Template
+
+```bash
+# Create a new C file with the default template
+run-gcc --new hello.c
+
+# Create a new C++ file with a specific template
+run-gcc --new solution.cpp --template competitive
+
+# List available templates for C files
+run-gcc --list-templates c
+```
 
 ### Compile and Run a C Program
 
@@ -84,6 +110,36 @@ run-gcc hello_with_input.c -i input.txt -e expected_output.txt
 ```bash
 run-gcc hello_with_input.c -i input.txt -e wrong_output.txt -d
 ```
+
+## Template Customization
+
+Templates are stored in `~/.run-gcc/templates/` directory and organized by language:
+
+- `~/.run-gcc/templates/c/` - C templates
+- `~/.run-gcc/templates/cpp/` - C++ templates
+
+You can customize existing templates or add new ones by creating files in these directories. Template files must match the extension of the language they're for (e.g., `.c` for C templates, `.cpp` for C++ templates).
+
+### Built-in Templates
+
+The following templates are included by default:
+
+**C Templates:**
+- `default` - Basic C program structure
+- `competitive` - Competitive programming template with common includes
+
+**C++ Templates:**
+- `default` - Basic C++ program structure
+- `competitive` - Competitive programming template with fast I/O and common includes
+
+### Adding Custom Templates
+
+To add your own template:
+
+1. Create a new file in the appropriate language directory (e.g., `~/.run-gcc/templates/c/mytemplate.c`)
+2. Add your template code to the file
+3. Use it with `run-gcc --new myfile.c --template mytemplate`
+
 
 ## Testing
 
