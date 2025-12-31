@@ -135,8 +135,11 @@ list_templates() {
   while IFS= read -r -d '' file; do
     local basename="${file##*/}"
     local name="${basename%.*}"
-    templates+=("$name")
-  done < <(find "$template_path" -maxdepth 1 -type f -name "*.$extension" -print0 2>/dev/null)
+    # Avoid duplicates by checking if name is already in array
+    if [[ ! " ${templates[@]} " =~ " ${name} " ]]; then
+      templates+=("$name")
+    fi
+  done < <(find "$template_path" -maxdepth 1 -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" \) -print0 2>/dev/null)
   
   if [[ ${#templates[@]} -eq 0 ]]; then
     if [[ "$color_output" == "true" ]]; then
@@ -170,11 +173,18 @@ create_from_template() {
   # Extract extension
   local extension="${filename##*.}"
   
-  # Determine language directory
+  # Determine language directory and possible template extensions
   local lang_dir=""
+  local template_extensions=()
   case "$extension" in
-    c) lang_dir="c" ;;
-    cpp|cc|cxx) lang_dir="cpp" ;;
+    c) 
+      lang_dir="c"
+      template_extensions=("c")
+      ;;
+    cpp|cc|cxx) 
+      lang_dir="cpp"
+      template_extensions=("cpp" "cc" "cxx")
+      ;;
     *) error_exit "Unsupported file extension '$extension'" ;;
   esac
   
@@ -183,28 +193,34 @@ create_from_template() {
     error_exit "File '$filename' already exists"
   fi
   
-  # Construct template path
-  local template_path="$template_dir/$lang_dir/$template_name.$extension"
+  # Try to find template with matching extension first, then fallback to common extensions
+  local template_path=""
+  local found_template="false"
   
-  if [[ ! -f "$template_path" ]]; then
-    # Try to find templates without checking exact extension
-    local glob_pattern="$template_dir/$lang_dir/$template_name".*
-    local matches=()
-    shopt -s nullglob
-    matches=($glob_pattern)
-    shopt -u nullglob
-    if [[ ${#matches[@]} -eq 1 && -f "${matches[0]}" ]]; then
-      template_path="${matches[0]}"
-    else
-      if [[ "$color_output" == "true" ]]; then
-        echo -e "\e[33m\e[1mWarning:\e[0m Template '$template_name' not found"
-      else
-        echo "Warning: Template '$template_name' not found"
+  # First, try exact extension match
+  if [[ -f "$template_dir/$lang_dir/$template_name.$extension" ]]; then
+    template_path="$template_dir/$lang_dir/$template_name.$extension"
+    found_template="true"
+  else
+    # Try other common extensions for this language
+    for ext in "${template_extensions[@]}"; do
+      if [[ -f "$template_dir/$lang_dir/$template_name.$ext" ]]; then
+        template_path="$template_dir/$lang_dir/$template_name.$ext"
+        found_template="true"
+        break
       fi
-      echo
-      list_templates "$extension"
-      exit 1
+    done
+  fi
+  
+  if [[ "$found_template" != "true" ]]; then
+    if [[ "$color_output" == "true" ]]; then
+      echo -e "\e[33m\e[1mWarning:\e[0m Template '$template_name' not found"
+    else
+      echo "Warning: Template '$template_name' not found"
     fi
+    echo
+    list_templates "$extension"
+    exit 1
   fi
   
   # Copy template to new file
