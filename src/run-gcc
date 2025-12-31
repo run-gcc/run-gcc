@@ -64,11 +64,11 @@ error_exit() {
 # Function to initialize template directory
 init_template_dir() {
   local template_base_dir="$HOME/.run-gcc"
-  local template_dir="$template_base_dir/templates"
+  local user_template_dir="$template_base_dir/templates"
   
   # Create directory structure if it doesn't exist
-  if [[ ! -d "$template_dir" ]]; then
-    mkdir -p "$template_dir/c" "$template_dir/cpp"
+  if [[ ! -d "$user_template_dir" ]]; then
+    mkdir -p "$user_template_dir/c" "$user_template_dir/cpp"
     
     # Detect installation directory
     local script_dir
@@ -86,10 +86,10 @@ init_template_dir() {
     
     # Copy default templates from installation if available
     if [[ -n "$pkg_templates" && -d "$pkg_templates" ]]; then
-      cp -r "$pkg_templates"/* "$template_dir/" 2>/dev/null || true
+      cp -r "$pkg_templates"/* "$user_template_dir/" 2>/dev/null || true
     else
       # Create basic default templates if no installation templates found
-      cat > "$template_dir/c/default.c" << 'EOFT'
+      cat > "$user_template_dir/c/default.c" << 'EOFT'
 #include <stdio.h>
 
 int main() {
@@ -99,7 +99,7 @@ int main() {
 }
 EOFT
       
-      cat > "$template_dir/cpp/default.cpp" << 'EOFT'
+      cat > "$user_template_dir/cpp/default.cpp" << 'EOFT'
 #include <iostream>
 
 using namespace std;
@@ -136,7 +136,7 @@ list_templates() {
     local basename="${file##*/}"
     local name="${basename%.*}"
     # Avoid duplicates by checking if name is already in array
-    if [[ ! " ${templates[@]} " =~ " ${name} " ]]; then
+    if [[ ${#templates[@]} -eq 0 || ! " ${templates[*]} " =~ " ${name} " ]]; then
       templates+=("$name")
     fi
   done < <(find "$template_path" -maxdepth 1 -type f \( -name "*.c" -o -name "*.cpp" -o -name "*.cc" -o -name "*.cxx" \) -print0 2>/dev/null)
