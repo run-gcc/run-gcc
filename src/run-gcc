@@ -188,8 +188,11 @@ create_from_template() {
   
   if [[ ! -f "$template_path" ]]; then
     # Try to find templates without checking exact extension
-    template_path="$template_dir/$lang_dir/$template_name".*
-    local matches=($template_path)
+    local glob_pattern="$template_dir/$lang_dir/$template_name".*
+    local matches=()
+    shopt -s nullglob
+    matches=($glob_pattern)
+    shopt -u nullglob
     if [[ ${#matches[@]} -eq 1 && -f "${matches[0]}" ]]; then
       template_path="${matches[0]}"
     else
@@ -632,9 +635,6 @@ main() {
   local cmd_line_memory_limit_set="false"
   local cmd_line_show_diff_set="false"
 
-  # Initialize template directory
-  init_template_dir
-
   # Check if help, version, or special options are provided
   if [[ $# -ge 1 ]]; then
     case "$1" in
@@ -647,6 +647,8 @@ main() {
       exit 0
       ;;
     --new)
+      # Initialize template directory only when needed
+      init_template_dir
       new_file_flag="true"
       shift
       if [[ $# -lt 1 ]]; then
@@ -656,6 +658,8 @@ main() {
       shift
       ;;
     --list-templates)
+      # Initialize template directory only when needed
+      init_template_dir
       list_templates_flag="true"
       shift
       if [[ $# -lt 1 ]]; then
